@@ -13,6 +13,8 @@ class HRR:
             self.randomize(N)
         else:
             raise Exception('Must specify size or data for HRR')
+    def length(self):
+        return norm(self.v)        
     def normalize(self):
         nrm=norm(self.v)
         if nrm>0: self.v/=nrm
@@ -28,6 +30,8 @@ class HRR:
     def __iadd__(self,other):
         self.v+=other.v
         return self
+    def __neg__(self):
+        return HRR(data=-self.v)    
     def __sub__(self,other):
         return HRR(data=self.v-other.v)
     def __isub__(self,other):
@@ -40,7 +44,10 @@ class HRR:
             return HRR(data=x)
         else:
             return HRR(data=self.v*other)
-            
+    def convolve(self,other):
+        x=ifft(fft(self.v)*fft(other.v)).real
+        return HRR(data=x)
+        
     def permute(self,permutation):
         # create a vector of zeroes
         permutedVector = numpy.zeros(len(self.v))
@@ -51,9 +58,6 @@ class HRR:
             permutedVector[permutation[index]] = value
         return HRR(data=permutedVector)
         
-    def convolve(self,other):
-        x=ifft(fft(self.v)*fft(other.v)).real
-        return HRR(data=x)
     def __rmul__(self,other):
         if isinstance(other,HRR):
             x=ifft(fft(self.v)*fft(other.v)).real
@@ -68,6 +72,8 @@ class HRR:
         scale=norm(self.v)*norm(other.v)
         if scale==0: return 0
         return numpy.dot(self.v,other.v)/(scale)
+    def dot(self,other):
+        return numpy.dot(self.v,other.v)
     def distance(self,other):
         return 1-self.compare(other)
     def __invert__(self):
@@ -147,9 +153,75 @@ class Mapper:
         
 
         
-                        
-    
-                                    
+                       
+                       
+from math import sin,pi,acos
+class Vocabulary:
+    def __init__(self,dimensions,randomize=True):
+        self.dimensions=dimensions
+        self.randomize=randomize
+        self.hrr={}
+        ident=[0]*dimensions
+        ident[0]=1.0
+        self.hrr['I']=HRR(data=ident)
+    def __getitem__(self,key):
+        if key not in self.hrr:
+            if self.randomize:    
+                self.hrr[key]=HRR(self.dimensions)
+            else:
+                v=[0]*self.dimensions
+                v[len(self.hrr)]=1.0
+                self.hrr[key]=HRR(data=v)    
+        return self.hrr[key]        
+    def parse(self,text):
+        return eval(text,{},self)
         
+    def text(self,v):
+        matches=[]
+        
+        names=self.hrr.keys()
+        names.sort()
+        names.remove('I')
+
+        for i in range(len(names)):        
+            k=names[i]
+            val=self.hrr[k]
+            c=val.compare(v)
+            if c>0: matches.append((c,k))
+            for j in range(i+1,len(names)):
+                k2=names[j]
+                val2=self.hrr[k2]
+                c=(val*val2).compare(v)                
+                if c>0: matches.append((c,'%s*%s'%(k,k2)))
+        matches.sort()
+        matches.reverse()
+        r=[]
+        for m in matches:
+            if m[0]>0.3: r.append(m)
+            elif len(r)<2: r.append(m)
+            else: break
+        return '+'.join(['%s(%0.2f)'%(k,c) for (c,k) in r])
+         
+         
+        
+    def prob_cleanup(self,compare,vocab_size,steps=10000):
+        # see http://yamlb.wordpress.com/2008/05/20/why-2-random-vectors-are-orthogonal-in-high-dimention/ 
+        #  for argument that the probability af two random vectors being a given angle apart is
+        #  proportional to sin(angle)^(D-2)
+        def prob_func(angle): 
+            return sin(angle)**(self.dimensions-2)
+        angle=acos(compare)
+        num=0
+        dnum=angle/steps
+        denom=0
+        ddenom=pi/steps
+        for i in range(steps):
+            num+=prob_func(pi-angle+dnum*i)
+            denom+=prob_func(ddenom*i)
+        num*=dnum
+        denom*=ddenom    
+        perror1=num/denom    
+        pcorrect=(1-perror1)**vocab_size
+        return pcorrect
         
         
