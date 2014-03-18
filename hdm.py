@@ -12,11 +12,22 @@ from ccm.pattern import Pattern
 from ccm.lib.hrr import HRR
 
 class HDM(Memory):
-  def __init__(self,buffer,latency=0.05,threshold=0,maximum_time=10.0,finst_size=4,finst_time=3.0):
+  # buffer is the buffer that the retrieved chunk is placed in
+  # N is the vector dimensionality
+  #     recommended dimensionality in the range of 512 to 2048, defaults to 1024
+  #     a smaller dimensionality than 512 can be used to introduce additional noise
+  # threshold is the lowest cosine similarity allowed for a response
+  #     if no memory vector has a similarity to the query greater than threshold, the retrieval fails
+  # maximum time is the most time the memory system is allowed to take
+  # latency is used to calculate reaction time
+  #     reaction time = latency * e^(-cosine)
+  #     Note that using this equation, given a cosine of 0, the reaction time = latency
+  #     Bigger latencies result in longer reaction times
+  def __init__(self,buffer,latency=0.05,threshold=0,maximum_time=10.0,finst_size=4,finst_time=3.0, N=1024):
     Memory.__init__(self,buffer)
     self._buffer=buffer
     self.hdm=[]
-    self.N = 1024
+    self.N = N
     self.environment={'?': HRR(N=self.N)}
     self.placeholder = self.environment['?']
     self.cLambda = 7
@@ -53,16 +64,14 @@ class HDM(Memory):
     else:
         # call addJustValues to add a chunk with values and no slots to memory
         self.addJustValues(chunk)
-    print " HDM: a chunk is added to HDM"
-
-
+        
 
   def addWithSlots(self,chunk):
     # convert chunk to a list of (slot,value) pairs
     chunkList = self.chunk2list(chunk)
     # define random Gaussian vectors and random permutations for any undefined values and slots
     self.defineVectors(chunkList)
-    # get all combinations ranging from pairs of slot-value pairs to sets of self.cLambda size
+    # get all combinations ranging from individual slot-value pairs to sets of self.cLambda size
     ngrams = self.getOpenNGrams(chunkList,range(1,self.cLambda+1))
     
     # update the memory vectors with the information from the chunk
@@ -111,7 +120,7 @@ class HDM(Memory):
     # define random Gaussian vectors for any undefined values
     self.defineVectors(chunkList)
     # get all combinations ranging from pairs of values to sets of self.cLambda size
-    ngrams = self.getOpenNGrams(chunkList,range(1,self.cLambda+1))
+    ngrams = self.getOpenNGrams(chunkList,range(2,self.cLambda+1))
     
     # update the memory vectors with the information from the chunk
     for gram in ngrams:
@@ -169,7 +178,7 @@ class HDM(Memory):
         queryVec, queryStr = self.queryJustValues(chunk)
      
      print 'The query is ' + queryStr
-     highestCosine = 0
+     highestCosine = self.threshold
      bestMatch = 'none'
      # find the best match to the query vector in memory
      for mem,memVec in self.memory.items():
@@ -198,7 +207,7 @@ class HDM(Memory):
      chunkList = self.chunk2list(chunk)
      # define random Gaussian vectors and random permutations for any undefined values and slots
      self.defineVectors(chunkList)
-     # get all combinations ranging from pairs of slot-value pairs to sets of self.cLambda size
+     # get all combinations ranging from individual slot-value pairs to sets of self.cLambda size
      ngrams = self.getOpenNGrams(chunkList,range(1,self.cLambda+1))
 
      # filter out ngrams that don't contain a ?
@@ -253,7 +262,7 @@ class HDM(Memory):
      # define random Gaussian vectors for any undefined values
      self.defineVectors(chunkList)
      # get all combinations ranging from pairs of slot-value pairs to sets of self.cLambda size
-     ngrams = self.getOpenNGrams(chunkList,range(1,self.cLambda+1))
+     ngrams = self.getOpenNGrams(chunkList,range(2,self.cLambda+1))
 
      # filter out ngrams that don't contain a ?
      queryGrams = []
