@@ -59,7 +59,7 @@ from ccm.lib.hrr import HRR
 class HDM(Memory):
   # buffer is the buffer that the retrieved chunk is placed in
   # N is the vector dimensionality
-  #     recommended dimensionality in the range of 512 to 2048, defaults to 1024
+  #     recommended dimensionality in the range of 512 to 2048, defaults to 512
   #     a smaller dimensionality than 512 can be used to introduce additional noise
   # threshold is the lowest cosine similarity allowed for a response
   #     if no memory vector has a similarity to the query greater than threshold, the retrieval fails
@@ -70,7 +70,22 @@ class HDM(Memory):
   #     Bigger latencies result in longer reaction times
   # verbose defaults to FALSE. 
   #     If TRUE, verbose turns on print statements giving details about what HDM is doing.
-  def __init__(self,buffer,latency=0.05,threshold=0.1,maximum_time=10.0,finst_size=4,finst_time=3.0, N=512, verbose=False, max_gram_size=7):
+  # forgetting controls the forgetting rate due to retroactive inhibition
+  #     range [0 to 1]
+  #     1 = no forgetting
+  #     0 = no remembering
+  #     When updating memory:
+  #     memory vector =  forgetting * memory vector + new information vector
+  # noise controls the amount of noise added to memory per time step
+  #     Gaussian noise is added to all memory vectors
+  #     whenever Request or Add is called
+  #     When adding noise:
+  #     memory vector = memory vector + noise * time since last update * noise vector
+  #     Noise ranges from [0 ... ]
+  #     where 0 is no noise
+  #     and more is more noise
+  
+  def __init__(self,buffer,latency=0.05,threshold=0.1,maximum_time=10.0,finst_size=4,finst_time=3.0, N=512, verbose=False, max_gram_size=7, forgetting=1.0, noise=0.0):
     Memory.__init__(self,buffer)
     self._buffer=buffer
     self.N = N
@@ -92,6 +107,10 @@ class HDM(Memory):
     self.finst=Finst(self,size=finst_size,time=finst_time)
     self.record_all_chunks=False
     self._request_count=0
+    self.inhibited=[] # list of inhibited values
+    self.forgetting=forgetting
+    self.noise=noise
+    self.lastUpdate = 0.0
     
   def clear(self):
     self.memory.clear()
@@ -99,11 +118,14 @@ class HDM(Memory):
   def add(self,chunk,record=None,**keys):
     # if error flag is true, set to false for production system
     if self.error: self.error=False
+    # add noise to memory
+    if (self.noise != 0):
+        self.addNoise()
     
     # convert chunk to string (if it isn't already a string)
     chunk = self.chunk2str(chunk)
     # assign any unassigned values in chunk
-    self.assignValues(chunk)
+    chunk = self.assignValues(chunk)
     # check if chunk has slots by checking for colons (which separate slots from values)
     if ':' in chunk:
         # call addWithSlots to add a chunk with slot:value pairs to memory
@@ -111,8 +133,17 @@ class HDM(Memory):
     else:
         # call addJustValues to add a chunk with values and no slots to memory
         self.addJustValues(chunk)
-        
 
+  # function for adding noise over time to memory    
+  def addNoise(self):
+    # weight by time difference
+    diff = self.now() - self.lastUpdate
+    noiseVector = HRR(N=self.N)
+    for value in self.environment.keys():
+        self.environment[value] = self.environment[value] + (self.noise * diff * noiseVector)
+    self.lastUpdate = self.now()
+    
+        
   def addWithSlots(self,chunk):
     # convert chunk to a list of (slot,value) pairs
     chunkList = self.chunk2list(chunk)
@@ -148,18 +179,8 @@ class HDM(Memory):
                     chunkStr = chunkStr+'*'+slotvalStr   
             # update memory
             (slot,value) = gram[p]
-            if value.startswith('!'):
-                self.memory[value] = self.memory[value[1:]] - chunking
-            else: 
-                self.memory[value] = self.memory[value] + chunking
-                
-            try:
-                self.memStr[value] = self.memStr[value] +' + '+ chunkStr
-            except:
-                self.memStr[value] = chunkStr
+            self.updateMemory(value,chunking,chunkStr)
 
-
-      
       
   def addJustValues(self,chunk):
     # convert chunk to a list of values
@@ -195,28 +216,45 @@ class HDM(Memory):
                     chunkStr = chunkStr+'*'+valStr   
             # update memory
             value = gram[p]
-            if value.startswith('!'):
-                self.memory[value] = self.memory[value[1:]] - chunking
-            else: 
-                self.memory[value] = self.memory[value] + chunking
-                
-            try:
-                self.memStr[value] = self.memStr[value] +' + '+ chunkStr
-            except:
-                self.memStr[value] = chunkStr
+            self.updateMemory(value,chunking,chunkStr)
 
+  # for updating a memory vector for value with chunk
+  def updateMemory(self,value,chunking,chunkStr):
+    if value.startswith('!'):
+        self.memory[value] = self.forgetting * self.memory[value[1:]] - chunking
+    else: 
+        self.memory[value] = self.forgetting * self.memory[value] + chunking
 
-  def request(self,chunk):
+    if self.verbose:
+        try:
+            self.memStr[value] = self.memStr[value] +' + '+ chunkStr
+        except:
+            self.memStr[value] = chunkStr
+
+  # default request function, call this
+  def request(self,chunk,require_new=False):
      self.busy=True
      if self.error: self.error=False
      self._request_count+=1
 
      
+     # add noise to memory
+     if (self.noise != 0):
+        self.addNoise()
+
+     # clear list of inhibited values from previous queries
+     self.inhibited = []
      # convert chunk to string (if it isn't already a string)
      chunk = self.chunk2str(chunk)
-     # assign any unassigned values in chunk string
+     # assign any unassigned values in chunk string and load inhibited values into self.inhibited
      chunk = self.assignValues(chunk)
-     
+     if '?' in chunk:
+        self.requestValue(chunk,require_new)
+     else:
+        self.resonance(chunk)
+
+
+  def requestValue(self,chunk,require_new=False):
      # check if chunk has slots by checking for colons (which separate slots from values)
      if ':' in chunk:
         queryVec, queryStr = self.queryWithSlots(chunk)
@@ -227,44 +265,67 @@ class HDM(Memory):
         print 'The query is ' + queryStr
      highestCosine = self.threshold
      bestMatch = 'none'
+     if self.verbose:
+        print 'inhibited values: ' + str(self.inhibited)
      # find the best match to the query vector in memory
      for mem,memVec in self.memory.items():
-        thisCosine = memVec.compare(queryVec)
-        if self.verbose:
-            print mem, thisCosine
-        if thisCosine > highestCosine:
-            highestCosine = thisCosine 
-            bestMatch = mem
-     if self.verbose:
-        print bestMatch
+        # skip inhibited values
+        if mem not in self.inhibited:
+            # skip previously reported values if require_new is true
+            if (not require_new) or (not self.finst.contains(mem)):
+                thisCosine = memVec.compare(queryVec)
+                if self.verbose:
+                    print mem, thisCosine
+                if thisCosine > highestCosine:
+                    highestCosine = thisCosine 
+                    bestMatch = mem
 
      if bestMatch == 'none':
+        if self.verbose:
+            print 'No matches found above threshold'
         self.fail(self._request_count)
      else:
          # replace the placeholder '?' with the retrieved memory 'bestMatch'
          chunk = chunk.replace('?',bestMatch)
          if self.verbose:
-            print 'Best match is ' + bestMatch + ' = ' + self.memStr[bestMatch]
+            print 'Best match is ' + bestMatch #+ ' = ' + self.memStr[bestMatch]
+            print 'with a cosine of ' + str(highestCosine)
             print 'output chunk = ' + chunk
          chunkObj = Chunk(chunk)
          chunkObj.activation = highestCosine
+         self.finst.add(bestMatch)
          self.recall(chunkObj,matches=[],request_number=self._request_count)
   
   # performs multiple queries to determine the "coherence" of the chunk
   def resonance(self,chunk):
-     self.busy=True
-     if self.error: self.error=False
-     self._request_count+=1
-
-
-     # convert chunk to string (if it isn't already a string)
-     chunk = self.chunk2str(chunk)
-     # assign any unassigned values in chunk string
-     chunk = self.assignValues(chunk)
-
      if '?' in chunk:
-        raise Exception("Use the resonanuce function when the chunk has no '?'. If there is a '?' use request instead")
+        print 'chunk is ' + chunk
+        raise Exception("Use the resonance function when the chunk has no '?'. If there is a '?' use request instead")
           
+     coherence = self.get_activation(chunk)
+     if self.verbose:
+        print 'The coherence is ' + str(coherence)
+     if coherence <= self.threshold:
+        self.fail(self._request_count)
+     else:
+         chunkObj = Chunk(chunk)
+         chunkObj.activation = coherence
+         self.recall(chunkObj,matches=[],request_number=self._request_count)     
+
+  # compute the coherence / activation of a chunk
+  # called by resonance
+  # called by request when no ? values are present
+  def get_activation(self,chunk):
+     # if this function has been called directly, we need to convert
+     if not self.busy:
+        # convert chunk to string (if it isn't already a string)
+        chunk = self.chunk2str(chunk)
+        # assign any unassigned values in chunk string and load inhibited values into self.inhibited
+        chunk = self.assignValues(chunk)
+        # add noise to memory
+        if (self.noise != 0):
+            self.addNoise()
+
      # keep track of the number of occurrences of a particular value in case of repeats
      occurrences = {}
      # keep a running sum of the cosines and a count of the values in the chunk
@@ -289,21 +350,14 @@ class HDM(Memory):
         numOfValues = numOfValues + 1;
 
         # find the match between the query vector and the value's memory vector
+        self.defineVectors([value])
         match = self.memory[value].compare(queryVec)
         sumOfCosines = sumOfCosines + match
-        if self.verbose:
-            print 'The query is ' + queryStr
-            print 'Match is ' + str(match) + ' for ' + value + ' = ' + self.memStr[value]
+        #if self.verbose:
+        #    print 'The query is ' + queryStr
+        #    print 'Match is ' + str(match) + ' for ' + value #+ ' = ' + self.memStr[value]
      coherence = sumOfCosines / numOfValues
-     if self.verbose:
-        print 'The coherence is ' + str(coherence)
-     if coherence <= self.threshold:
-        self.fail(self._request_count)
-     else:
-         chunkObj = Chunk(chunk)
-         chunkObj.activation = coherence
-         self.recall(chunkObj,matches=[],request_number=self._request_count)     
-
+     return coherence
 
   # create a query vector for a chunk consisting of slot:value pairs
   # the query vector consists of the open n-grams of the slot:value pairs
@@ -459,15 +513,44 @@ class HDM(Memory):
         else:
             value = attribute
             slot  = '' 
+        # sometimes we want to specify things not to select
+        # for example, condiment:?unknown!mustard
+        # means find a condiment that isn't mustard
         if value.startswith('?') and value is not '?':
-            try:
-                # take "?value" without the "?"
-                key = value[1:]
-                # look it up in the "bound dictionary" and substitute
-                value = bound[key]
-            # if "value" in "?value" is undefined, replace with "?"
-            except:
-                value = '?'
+            first = True
+            for subvalue in value.split('!'):
+                # we know the first value starts with ?, so let's substitute
+                if first:
+                    first = False;
+                    #check to see if it's not just a ? by itself
+                    if subvalue is '?':
+                        value = '?'
+                    else:
+                        try:
+                            # take "?value" without the "?"
+                            key = subvalue[1:]
+                            # look it up in the "bound dictionary" and substitute
+                            value = bound[key]
+                        # if "value" in "?value" is undefined, replace with "?"
+                        except:
+                            value = '?'
+                # the following values all start with ! meaning things we don't want to retrieve
+                else:
+                    if subvalue.startswith('?'):
+                        # but some of them may start with ? indicating we need to substitute
+                        try:
+                            # take "?value" without the "?"
+                            key = subvalue[1:]
+                            # look it up in the "bound dictionary" and add to inhibited values list
+                            subvalue = bound[key]
+                        # if "value" in "?value" is undefined, raise exception
+                        except:
+                            print chunk
+                            print 'Error with subvalue: ' + subvalue + ' in chunk: ' + chunk
+                            raise Exception('Values beginning with ! are understood in this context as indicating values to be inhibited. The specified !value is undefined')
+                    # add subvalue to inhibition list
+                    self.inhibited.append(subvalue)
+
         # add the value to the chunkList
         chunkList.append(slot+value)
     # convert chunkList into a string delimited by spaces
@@ -532,7 +615,6 @@ class HDM(Memory):
      self.busy=False
   
   def recall(self,chunk,matches,request_number):
-     self.finst.add(chunk)
      time=self.latency*math.exp(-chunk.activation)
      if time>self.maximum_time: time=self.maximum_time
      yield time
