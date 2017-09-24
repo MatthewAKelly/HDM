@@ -24,7 +24,7 @@ EASY INSTALL
 
 LESS EASY INSTALL
 
-1. Downloaded the latest and greatest and most up-to-date version of Python ACT-r from https://github.com/tcstewar/ccmsuite
+1. Downloaded the latest and greatest and most up-to-date version of Python ACT-R from https://github.com/tcstewar/ccmsuite
 
 2. Download hdm.py from this repository and place it in ccmsuite/ccm/lib/actr/hdm.py
 
@@ -39,10 +39,15 @@ LESS EASY INSTALL
 USING HDM
 
 To use HDM:
+
    from ccm.lib.actr import *
+
    from ccm.lib.actr.hdm import *
+
  ...
+
    retrieval=Buffer()
+
    memory=HDM(retrieval)
 
 The HDM module provides four methods for use by an ACT-R model:
