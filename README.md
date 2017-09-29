@@ -30,7 +30,7 @@ LESS EASY INSTALL
 
 3. Download hrr.py from this repository and use it to replace the one in ccmsuite/ccm/lib/hrr.py
 
-4. Add the line “from ccm.lib.actr.hdm import HDM” to ccmsuite/ccm/lib/actr/\__init\__.py
+4. Add the line “from ccm.lib.actr.hdm import HDM” to ccmsuite/ccm/lib/actr/\_\_init\_\_.py
 
 5. Add the CCMSuite folder to your Python Path.
 
