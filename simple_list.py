@@ -44,7 +44,7 @@ class MyAgent(ACTR):
     auditory=Buffer()
     DMbuffer=Buffer()                   
     
-    Use_HDM = False
+    Use_HDM = True
     
     if Use_HDM: # standard latency = 0.05
         DM=HDM(DMbuffer,N=64,latency=0.5,verbose=False,noise=1.0,forgetting=0.9,finst_size=22,finst_time=100.0)

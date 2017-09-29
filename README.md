@@ -14,7 +14,7 @@ To install HDM for use on your own computer, use one of the two following method
 
 EASY INSTALL
 
-1. Download the CCMSuite repository for Python ACT-R and HDM from https://github.com/MatthewAKelly/ccmsuite
+1. Download the CCMSuite repository for Python 2 ACT-R and HDM from https://github.com/MatthewAKelly/ccmsuite
 
 2. Add the CCMSuite folder to your Python Path.
 
@@ -24,17 +24,19 @@ EASY INSTALL
 
 LESS EASY INSTALL
 
-1. Downloaded the latest and greatest and most up-to-date version of Python ACT-R from https://github.com/tcstewar/ccmsuite
+1. Downloaded the official Python ACT-R for Python 2 from https://github.com/tcstewar/ccmsuite or for Python 3 from https://github.com/sterlingsomers/ccmsuite
 
 2. Download hdm.py from this repository and place it in ccmsuite/ccm/lib/actr/hdm.py
 
 3. Download hrr.py from this repository and use it to replace the one in ccmsuite/ccm/lib/hrr.py
 
-4. Add the CCMSuite folder to your Python Path.
+4. Add the line “from ccm.lib.actr.hdm import HDM” to ccmsuite/ccm/lib/actr/__init__.py
 
-5. Create a Python ACT-R model (see Python ACT-R tutorials).
+5. Add the CCMSuite folder to your Python Path.
 
-6. Instead of creating an instance of DM, create an instance of HDM in your model (see example code in this repository).
+6. Create a Python ACT-R model (see Python ACT-R tutorials).
+
+7. Instead of creating an instance of DM, create an instance of HDM in your model (see example code in this repository).
 
 USING HDM
 
