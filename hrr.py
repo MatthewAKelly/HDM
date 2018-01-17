@@ -49,13 +49,7 @@ class HRR:
         return HRR(data=x)
         
     def permute(self,permutation):
-        # create a vector of zeroes
-        permutedVector = numpy.zeros(len(self.v))
-        
-        # copy elements from self.v into permutedVector
-        # according to permutation specified by permutation
-        for index, value in numpy.ndenumerate(self.v):
-            permutedVector[permutation[index]] = value
+        permutedVector = self.v[permutation]
         return HRR(data=permutedVector)
         
     def __rmul__(self,other):
