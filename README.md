@@ -16,7 +16,7 @@ EASY INSTALL
 
 1. Download the CCMSuite repository for Python 2 ACT-R and HDM from https://github.com/MatthewAKelly/ccmsuite
 
-2. Add the CCMSuite folder to your Python Path.
+2. Add the CCMSuite folder to your Python Path. For instructions on how to set the Python Path see this link: https://www.techwalla.com/articles/how-to-set-your-python-path
 
 3. Create a Python ACT-R model (see Python ACT-R tutorials).
 
